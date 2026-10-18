@@ -4,9 +4,11 @@ import com.ghost.sacred_library.dto.AuthResponse;
 import com.ghost.sacred_library.dto.LoginRequest;
 import com.ghost.sacred_library.dto.RegisterRequest;
 import com.ghost.sacred_library.dto.UserResponse;
+import com.ghost.sacred_library.security.UserPrincipal;
 import com.ghost.sacred_library.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -18,4 +20,8 @@ public class AuthController {
     public UserResponse register(@Valid @RequestBody RegisterRequest request) { return authService.register(request); }
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) { return authService.login(request); }
+    @GetMapping("/me")
+    public UserResponse me(@AuthenticationPrincipal UserPrincipal principal) {
+        return UserResponse.from(principal.getUser());
+    }
 }
