@@ -2,6 +2,8 @@ package com.ghost.sacred_library.exception;
 
 import com.ghost.sacred_library.dto.ErrorResponse;
 import com.ghost.sacred_library.service.AuthService.DuplicateAccountException;
+import com.ghost.sacred_library.service.CategoriesService.DuplicateSlugException;
+import com.ghost.sacred_library.service.CategoriesService.ResourceNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -28,13 +30,17 @@ public class ApiExceptionHandler {
         String message = ex instanceof IllegalArgumentException ? ex.getMessage() : "Request body or parameters are invalid.";
         return response(HttpStatus.BAD_REQUEST, message, Map.of());
     }
-    @ExceptionHandler(DuplicateAccountException.class)
-    org.springframework.http.ResponseEntity<ErrorResponse> duplicate(DuplicateAccountException ex) {
+    @ExceptionHandler(ResourceNotFoundException.class)
+    org.springframework.http.ResponseEntity<ErrorResponse> notFound(ResourceNotFoundException ex) {
+        return response(HttpStatus.NOT_FOUND, ex.getMessage(), Map.of());
+    }
+    @ExceptionHandler({DuplicateAccountException.class, DuplicateSlugException.class})
+    org.springframework.http.ResponseEntity<ErrorResponse> duplicate(RuntimeException ex) {
         return response(HttpStatus.CONFLICT, ex.getMessage(), Map.of());
     }
     @ExceptionHandler(DataIntegrityViolationException.class)
     org.springframework.http.ResponseEntity<ErrorResponse> constraint(DataIntegrityViolationException ex) {
-        return response(HttpStatus.CONFLICT, "Username, email, or role already exists.", Map.of());
+        return response(HttpStatus.CONFLICT, "Username, email, slug, or role already exists.", Map.of());
     }
     @ExceptionHandler(BadCredentialsException.class)
     org.springframework.http.ResponseEntity<ErrorResponse> badCredentials(BadCredentialsException ex) {
