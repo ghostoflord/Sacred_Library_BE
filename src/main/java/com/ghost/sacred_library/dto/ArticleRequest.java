@@ -1,9 +1,11 @@
 package com.ghost.sacred_library.dto;
 
 import com.ghost.sacred_library.enums.ContentFormat;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 public record ArticleRequest(
         @NotBlank @Size(max = 250) String title,
@@ -15,5 +17,7 @@ public record ArticleRequest(
         @NotNull Long categoryId,
         Boolean featured,
         @Size(max = 250) String metaTitle,
-        @Size(max = 320) String metaDescription) {
+        @Size(max = 320) String metaDescription,
+        List<Long> tagIds,
+        @Valid List<ArticleSourceRequest> sources) {
 }

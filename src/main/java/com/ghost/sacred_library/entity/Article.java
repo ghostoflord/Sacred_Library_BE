@@ -2,6 +2,7 @@ package com.ghost.sacred_library.entity;
 
 import com.ghost.sacred_library.enums.ArticleStatus;
 import com.ghost.sacred_library.enums.ContentFormat;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,12 +12,20 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(name = "articles", uniqueConstraints = {
@@ -85,6 +94,18 @@ public class Article {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "article_tags",
+            joinColumns = @JoinColumn(name = "article_id"),
+            inverseJoinColumns = @JoinColumn(name = "tag_id"),
+            uniqueConstraints = @UniqueConstraint(name = "uk_article_tags", columnNames = {"article_id", "tag_id"}))
+    private Set<Tag> tags = new HashSet<>();
+
+    @OneToMany(mappedBy = "article", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("id ASC")
+    private List<ArticleSource> sources = new ArrayList<>();
 
     protected Article() {
     }
@@ -255,5 +276,40 @@ public class Article {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public Set<Tag> getTags() {
+        return tags;
+    }
+
+    public void setTags(Set<Tag> tags) {
+        this.tags.clear();
+        if (tags != null) {
+            this.tags.addAll(tags);
+        }
+    }
+
+    public List<ArticleSource> getSources() {
+        return sources;
+    }
+
+    public void replaceSources(List<ArticleSource> nextSources) {
+        sources.clear();
+        if (nextSources != null) {
+            for (ArticleSource source : nextSources) {
+                source.setArticle(this);
+                sources.add(source);
+            }
+        }
+    }
+
+    public void addSource(ArticleSource source) {
+        source.setArticle(this);
+        sources.add(source);
+    }
+
+    public void removeSource(ArticleSource source) {
+        sources.remove(source);
+        source.setArticle(null);
     }
 }

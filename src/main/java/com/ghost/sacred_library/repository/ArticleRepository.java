@@ -40,12 +40,14 @@ public interface ArticleRepository extends JpaRepository<Article, Long> {
             Pageable pageable);
 
     @Query("""
-            SELECT a FROM Article a
+            SELECT DISTINCT a FROM Article a
+            LEFT JOIN a.tags t
             WHERE a.deletedAt IS NULL
               AND a.status = com.ghost.sacred_library.enums.ArticleStatus.PUBLISHED
               AND a.publishedAt IS NOT NULL
               AND a.publishedAt <= :now
               AND (:categoryId IS NULL OR a.category.id = :categoryId)
+              AND (:tagSlug IS NULL OR t.slug = :tagSlug)
               AND (
                     :q IS NULL
                     OR LOWER(a.title) LIKE LOWER(CONCAT('%', :q, '%'))
@@ -55,6 +57,7 @@ public interface ArticleRepository extends JpaRepository<Article, Long> {
     Page<Article> searchPublished(
             @Param("q") String q,
             @Param("categoryId") Long categoryId,
+            @Param("tagSlug") String tagSlug,
             @Param("now") Instant now,
             Pageable pageable);
 

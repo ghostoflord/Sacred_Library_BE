@@ -3,6 +3,7 @@ package com.ghost.sacred_library.dto;
 import com.ghost.sacred_library.entity.Article;
 import com.ghost.sacred_library.enums.ArticleStatus;
 import java.time.Instant;
+import java.util.List;
 
 public record ArticleListItemResponse(
         Long id,
@@ -11,6 +12,7 @@ public record ArticleListItemResponse(
         String summary,
         String coverImageUrl,
         ArticleCategorySummary category,
+        List<TagSummary> tags,
         String authorName,
         ArticleStatus status,
         Instant publishedAt,
@@ -28,6 +30,7 @@ public record ArticleListItemResponse(
                 article.getSummary(),
                 article.getCoverImageUrl(),
                 ArticleCategorySummary.from(article.getCategory()),
+                article.getTags().stream().map(TagSummary::from).toList(),
                 article.getAuthor().getUsername(),
                 article.getStatus(),
                 article.getPublishedAt(),

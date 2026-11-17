@@ -3,6 +3,8 @@ package com.ghost.sacred_library.controller;
 import com.ghost.sacred_library.dto.ArticleDetailResponse;
 import com.ghost.sacred_library.dto.ArticleListItemResponse;
 import com.ghost.sacred_library.dto.ArticleRequest;
+import com.ghost.sacred_library.dto.ArticleSourceRequest;
+import com.ghost.sacred_library.dto.ArticleSourceResponse;
 import com.ghost.sacred_library.dto.PageResponse;
 import com.ghost.sacred_library.enums.ArticleStatus;
 import com.ghost.sacred_library.security.UserPrincipal;
@@ -75,6 +77,14 @@ public class AdminArticlesController {
     @PostMapping("/{id}/archive")
     public ArticleDetailResponse archive(@PathVariable Long id) {
         return articlesService.archive(id);
+    }
+
+    @PostMapping("/{id}/sources")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ArticleSourceResponse addSource(
+            @PathVariable Long id,
+            @Valid @RequestBody ArticleSourceRequest request) {
+        return articlesService.addSource(id, request);
     }
 
     @DeleteMapping("/{id}")

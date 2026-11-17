@@ -5,6 +5,7 @@ import com.ghost.sacred_library.service.ArticlesService;
 import com.ghost.sacred_library.service.AuthService.DuplicateAccountException;
 import com.ghost.sacred_library.service.CategoriesService.DuplicateSlugException;
 import com.ghost.sacred_library.service.CategoriesService.ResourceNotFoundException;
+import com.ghost.sacred_library.service.TagsService;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -31,14 +32,19 @@ public class ApiExceptionHandler {
         String message = ex instanceof IllegalArgumentException ? ex.getMessage() : "Request body or parameters are invalid.";
         return response(HttpStatus.BAD_REQUEST, message, Map.of());
     }
-    @ExceptionHandler({ResourceNotFoundException.class, ArticlesService.ResourceNotFoundException.class})
+    @ExceptionHandler({
+            ResourceNotFoundException.class,
+            ArticlesService.ResourceNotFoundException.class,
+            TagsService.ResourceNotFoundException.class
+    })
     org.springframework.http.ResponseEntity<ErrorResponse> notFound(RuntimeException ex) {
         return response(HttpStatus.NOT_FOUND, ex.getMessage(), Map.of());
     }
     @ExceptionHandler({
             DuplicateAccountException.class,
             DuplicateSlugException.class,
-            ArticlesService.DuplicateSlugException.class
+            ArticlesService.DuplicateSlugException.class,
+            TagsService.DuplicateSlugException.class
     })
     org.springframework.http.ResponseEntity<ErrorResponse> duplicate(RuntimeException ex) {
         return response(HttpStatus.CONFLICT, ex.getMessage(), Map.of());

@@ -3,18 +3,27 @@ package com.ghost.sacred_library.service;
 import com.ghost.sacred_library.dto.ArticleDetailResponse;
 import com.ghost.sacred_library.dto.ArticleListItemResponse;
 import com.ghost.sacred_library.dto.ArticleRequest;
+import com.ghost.sacred_library.dto.ArticleSourceRequest;
+import com.ghost.sacred_library.dto.ArticleSourceResponse;
 import com.ghost.sacred_library.dto.PageResponse;
 import com.ghost.sacred_library.entity.Article;
+import com.ghost.sacred_library.entity.ArticleSource;
 import com.ghost.sacred_library.entity.Categories;
+import com.ghost.sacred_library.entity.Tag;
 import com.ghost.sacred_library.entity.User;
 import com.ghost.sacred_library.enums.ArticleStatus;
 import com.ghost.sacred_library.enums.ContentFormat;
 import com.ghost.sacred_library.repository.ArticleRepository;
+import com.ghost.sacred_library.repository.ArticleSourceRepository;
 import com.ghost.sacred_library.repository.CategoriesRepository;
+import com.ghost.sacred_library.repository.TagRepository;
 import com.ghost.sacred_library.repository.UserRepository;
-import java.text.Normalizer;
+import com.ghost.sacred_library.util.SlugUtils;
 import java.time.Instant;
-import java.util.Locale;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,14 +41,23 @@ public class ArticlesService {
     private final ArticleRepository articleRepository;
     private final CategoriesRepository categoriesRepository;
     private final UserRepository userRepository;
+    private final TagRepository tagRepository;
+    private final ArticleSourceRepository articleSourceRepository;
+    private final AuditLogService auditLogService;
 
     public ArticlesService(
             ArticleRepository articleRepository,
             CategoriesRepository categoriesRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            TagRepository tagRepository,
+            ArticleSourceRepository articleSourceRepository,
+            AuditLogService auditLogService) {
         this.articleRepository = articleRepository;
         this.categoriesRepository = categoriesRepository;
         this.userRepository = userRepository;
+        this.tagRepository = tagRepository;
+        this.articleSourceRepository = articleSourceRepository;
+        this.auditLogService = auditLogService;
     }
 
     @Transactional
@@ -49,14 +67,19 @@ public class ArticlesService {
         Categories category = getCategory(request.categoryId());
         String title = request.title().trim();
         String content = request.content().trim();
-        String slug = resolveSlug(request.slug(), title);
+        String slug = SlugUtils.resolve(request.slug(), title);
         ensureSlugAvailable(slug, null);
 
         Article article = new Article(title, slug, content, category, author);
         applyWritableFields(article, request, title, content);
         article.setStatus(ArticleStatus.DRAFT);
         article.setPublishedAt(null);
-        return ArticleDetailResponse.from(articleRepository.save(article));
+        applyTags(article, request.tagIds());
+        applySources(article, request.sources());
+
+        Article saved = articleRepository.save(article);
+        auditLogService.record("ARTICLE_CREATED", "ARTICLE", saved.getId(), Map.of("slug", saved.getSlug()));
+        return ArticleDetailResponse.from(saved);
     }
 
     @Transactional
@@ -65,7 +88,7 @@ public class ArticlesService {
         Categories category = getCategory(request.categoryId());
         String title = request.title().trim();
         String content = request.content().trim();
-        String slug = resolveSlug(request.slug(), title);
+        String slug = SlugUtils.resolve(request.slug(), title);
         ensureSlugAvailable(slug, id);
 
         article.setTitle(title);
@@ -73,6 +96,10 @@ public class ArticlesService {
         article.setContent(content);
         article.setCategory(category);
         applyWritableFields(article, request, title, content);
+        applyTags(article, request.tagIds());
+        if (request.sources() != null) {
+            applySources(article, request.sources());
+        }
 
         if (article.getStatus() == ArticleStatus.PUBLISHED) {
             validatePublishable(article);
@@ -80,7 +107,10 @@ public class ArticlesService {
                 article.setPublishedAt(Instant.now());
             }
         }
-        return ArticleDetailResponse.from(articleRepository.save(article));
+
+        Article saved = articleRepository.save(article);
+        auditLogService.record("ARTICLE_UPDATED", "ARTICLE", saved.getId(), Map.of("slug", saved.getSlug()));
+        return ArticleDetailResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -113,21 +143,27 @@ public class ArticlesService {
         if (article.getPublishedAt() == null) {
             article.setPublishedAt(Instant.now());
         }
-        return ArticleDetailResponse.from(articleRepository.save(article));
+        Article saved = articleRepository.save(article);
+        auditLogService.record("ARTICLE_PUBLISHED", "ARTICLE", saved.getId(), Map.of("slug", saved.getSlug()));
+        return ArticleDetailResponse.from(saved);
     }
 
     @Transactional
     public ArticleDetailResponse unpublish(Long id) {
         Article article = getActiveArticle(id);
         article.setStatus(ArticleStatus.DRAFT);
-        return ArticleDetailResponse.from(articleRepository.save(article));
+        Article saved = articleRepository.save(article);
+        auditLogService.record("ARTICLE_UNPUBLISHED", "ARTICLE", saved.getId(), Map.of("slug", saved.getSlug()));
+        return ArticleDetailResponse.from(saved);
     }
 
     @Transactional
     public ArticleDetailResponse archive(Long id) {
         Article article = getActiveArticle(id);
         article.setStatus(ArticleStatus.ARCHIVED);
-        return ArticleDetailResponse.from(articleRepository.save(article));
+        Article saved = articleRepository.save(article);
+        auditLogService.record("ARTICLE_ARCHIVED", "ARTICLE", saved.getId(), Map.of("slug", saved.getSlug()));
+        return ArticleDetailResponse.from(saved);
     }
 
     @Transactional
@@ -135,19 +171,21 @@ public class ArticlesService {
         Article article = getActiveArticle(id);
         article.softDelete();
         articleRepository.save(article);
+        auditLogService.record("ARTICLE_DELETED", "ARTICLE", id, Map.of("slug", article.getSlug()));
     }
 
     @Transactional(readOnly = true)
     public PageResponse<ArticleListItemResponse> findPublished(
             String q,
             Long categoryId,
+            String tag,
             int page,
             int pageSize,
             String sortBy,
             String sortDirection) {
         Pageable pageable = toPageable(page, pageSize, sortBy, sortDirection, "publishedAt");
         Page<ArticleListItemResponse> result = articleRepository
-                .searchPublished(normalizeQuery(q), categoryId, Instant.now(), pageable)
+                .searchPublished(normalizeQuery(q), categoryId, normalizeQuery(tag), Instant.now(), pageable)
                 .map(ArticleListItemResponse::from);
         return PageResponse.from(result);
     }
@@ -167,7 +205,7 @@ public class ArticlesService {
         int size = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(0, size, Sort.by(Sort.Direction.DESC, "publishedAt"));
         Page<ArticleListItemResponse> result = articleRepository
-                .searchPublished(null, null, Instant.now(), pageable)
+                .searchPublished(null, null, null, Instant.now(), pageable)
                 .map(ArticleListItemResponse::from);
         return PageResponse.from(result);
     }
@@ -185,17 +223,107 @@ public class ArticlesService {
         return ArticleDetailResponse.from(articleRepository.save(article));
     }
 
+    @Transactional(readOnly = true)
+    public List<ArticleSourceResponse> findPublishedSourcesBySlug(String slug) {
+        Article article = articleRepository.findBySlugAndDeletedAtIsNull(slug)
+                .orElseThrow(() -> new ResourceNotFoundException("Article not found."));
+        if (article.getStatus() != ArticleStatus.PUBLISHED
+                || article.getPublishedAt() == null
+                || article.getPublishedAt().isAfter(Instant.now())) {
+            throw new ResourceNotFoundException("Article not found.");
+        }
+        return article.getSources().stream().map(ArticleSourceResponse::from).toList();
+    }
+
+    @Transactional
+    public ArticleSourceResponse addSource(Long articleId, ArticleSourceRequest request) {
+        Article article = getActiveArticle(articleId);
+        ArticleSource source = toSourceEntity(article, request);
+        article.addSource(source);
+        articleRepository.save(article);
+        auditLogService.record("ARTICLE_SOURCE_CREATED", "ARTICLE_SOURCE", source.getId(),
+                Map.of("articleId", articleId));
+        return ArticleSourceResponse.from(source);
+    }
+
+    @Transactional
+    public ArticleSourceResponse updateSource(Long sourceId, ArticleSourceRequest request) {
+        ArticleSource source = articleSourceRepository.findByIdAndArticleDeletedAtIsNull(sourceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Source not found."));
+        applySourceFields(source, request);
+        ArticleSource saved = articleSourceRepository.save(source);
+        auditLogService.record("ARTICLE_SOURCE_UPDATED", "ARTICLE_SOURCE", saved.getId(),
+                Map.of("articleId", saved.getArticle().getId()));
+        return ArticleSourceResponse.from(saved);
+    }
+
+    @Transactional
+    public void deleteSource(Long sourceId) {
+        ArticleSource source = articleSourceRepository.findByIdAndArticleDeletedAtIsNull(sourceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Source not found."));
+        Article article = source.getArticle();
+        Long articleId = article.getId();
+        article.removeSource(source);
+        articleRepository.save(article);
+        auditLogService.record("ARTICLE_SOURCE_DELETED", "ARTICLE_SOURCE", sourceId,
+                Map.of("articleId", articleId));
+    }
+
     private void applyWritableFields(Article article, ArticleRequest request, String title, String content) {
-        article.setSummary(normalizeNullable(request.summary()));
+        article.setSummary(SlugUtils.normalizeNullable(request.summary()));
         article.setContentFormat(request.contentFormat() == null ? ContentFormat.MARKDOWN : request.contentFormat());
-        article.setCoverImageUrl(normalizeNullable(request.coverImageUrl()));
+        article.setCoverImageUrl(SlugUtils.normalizeNullable(request.coverImageUrl()));
         article.setFeatured(Boolean.TRUE.equals(request.featured()));
-        article.setMetaTitle(normalizeNullable(request.metaTitle()));
-        article.setMetaDescription(normalizeNullable(request.metaDescription()));
+        article.setMetaTitle(SlugUtils.normalizeNullable(request.metaTitle()));
+        article.setMetaDescription(SlugUtils.normalizeNullable(request.metaDescription()));
         article.setReadingTimeMinutes(estimateReadingTime(content));
         if (article.getMetaTitle() == null) {
             article.setMetaTitle(title);
         }
+    }
+
+    private void applyTags(Article article, List<Long> tagIds) {
+        if (tagIds == null) {
+            return;
+        }
+        if (tagIds.isEmpty()) {
+            article.setTags(Set.of());
+            return;
+        }
+        List<Tag> tags = tagRepository.findByIdIn(tagIds);
+        if (tags.size() != tagIds.stream().distinct().count()) {
+            throw new ResourceNotFoundException("One or more tags were not found.");
+        }
+        article.setTags(new HashSet<>(tags));
+    }
+
+    private void applySources(Article article, List<ArticleSourceRequest> requests) {
+        if (requests == null) {
+            article.replaceSources(List.of());
+            return;
+        }
+        List<ArticleSource> sources = requests.stream()
+                .map(req -> toSourceEntity(article, req))
+                .toList();
+        article.replaceSources(sources);
+    }
+
+    private ArticleSource toSourceEntity(Article article, ArticleSourceRequest request) {
+        ArticleSource source = new ArticleSource(article, request.title().trim(), request.sourceType());
+        applySourceFields(source, request);
+        return source;
+    }
+
+    private void applySourceFields(ArticleSource source, ArticleSourceRequest request) {
+        source.setTitle(request.title().trim());
+        source.setCreator(SlugUtils.normalizeNullable(request.creator()));
+        source.setSourceType(request.sourceType());
+        source.setUrl(SlugUtils.normalizeNullable(request.url()));
+        source.setPublisher(SlugUtils.normalizeNullable(request.publisher()));
+        source.setPublishedYear(request.publishedYear());
+        source.setPageReference(SlugUtils.normalizeNullable(request.pageReference()));
+        source.setAccessedAt(request.accessedAt());
+        source.setNote(SlugUtils.normalizeNullable(request.note()));
     }
 
     private void validatePublishable(Article article) {
@@ -227,33 +355,6 @@ public class ArticlesService {
         if (taken) {
             throw new DuplicateSlugException("Slug is already in use.");
         }
-    }
-
-    private String resolveSlug(String rawSlug, String title) {
-        String source = rawSlug == null || rawSlug.isBlank() ? title : rawSlug.trim();
-        String slug = toSlug(source);
-        if (slug.isBlank()) {
-            throw new IllegalArgumentException("Slug is required.");
-        }
-        return slug;
-    }
-
-    private static String toSlug(String value) {
-        return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9\\s-]", "")
-                .replaceAll("\\s+", "-")
-                .replaceAll("-{2,}", "-")
-                .replaceAll("^-|-$", "");
-    }
-
-    private static String normalizeNullable(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String normalizeQuery(String q) {

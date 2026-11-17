@@ -2,8 +2,10 @@ package com.ghost.sacred_library.controller;
 
 import com.ghost.sacred_library.dto.ArticleDetailResponse;
 import com.ghost.sacred_library.dto.ArticleListItemResponse;
+import com.ghost.sacred_library.dto.ArticleSourceResponse;
 import com.ghost.sacred_library.dto.PageResponse;
 import com.ghost.sacred_library.service.ArticlesService;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,11 +26,12 @@ public class ArticlesController {
     public PageResponse<ArticleListItemResponse> list(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) String tag,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(defaultValue = "publishedAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDirection) {
-        return articlesService.findPublished(q, categoryId, page, pageSize, sortBy, sortDirection);
+        return articlesService.findPublished(q, categoryId, tag, page, pageSize, sortBy, sortDirection);
     }
 
     @GetMapping("/featured")
@@ -41,6 +44,11 @@ public class ArticlesController {
     public PageResponse<ArticleListItemResponse> recent(
             @RequestParam(defaultValue = "10") int limit) {
         return articlesService.findRecent(limit);
+    }
+
+    @GetMapping("/{slug}/sources")
+    public List<ArticleSourceResponse> sources(@PathVariable String slug) {
+        return articlesService.findPublishedSourcesBySlug(slug);
     }
 
     @GetMapping("/{slug}")
